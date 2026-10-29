@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ART PI Execution Command Center</title>
+  <!-- UI Frameworks -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <!-- SheetJS for Full Excel/Google Sheets Import & Multi-Tab Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .badge-done { background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .badge-progress { background-color: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .badge-pending { background-color: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+    .badge-delay { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col">
+
+  <!-- Top App Bar -->
+  <header class="bg-slate-900 text-white shadow sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-emerald-500 text-white p-2 rounded-lg text-lg font-bold">
+          <i class="fa-solid fa-layer-group"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight">ART PI Planning & Command Center</h1>
+          <p class="text-xs text-slate-400">Independent Sheets Engine • Sprint 27.3.2 Active</p>
+        </div>
+      </div>
+
+      <!-- Action & Sheets Integration Bar -->
+      <div class="flex items-center flex-wrap gap-2">
+        <label class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-semibold px-3 py-2 rounded shadow cursor-pointer flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-file-arrow-up text-emerald-400"></i> Import Sheet (.xlsx/.csv)
+          <input type="file" id="sheet-file-input" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileImport(event)" />
+        </label>
+        
+        <button onclick="toggleModal('import-url-modal')" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-semibold px-3 py-2 rounded shadow flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-link text-sky-400"></i> Sync Sheet URL
+        </button>
+
+        <button onclick="exportToWorkbook()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded shadow flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-file-excel"></i> Export Multi-Tab Sheet
+        </button>
+
+        <button onclick="toggleModal('standup-modal')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded shadow flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-robot"></i> Parse Stand-up Log
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
+
+    <!-- Sprint Capacity Baselines -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-2">
+          <i class="fa-regular fa-calendar-check text-indigo-500"></i> Sprint Schedule & Working Capacity
+        </h2>
+        <span class="text-xs text-slate-400 font-medium">*Capacity adjusts for public holidays</span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" id="sprints-grid"></div>
+    </section>
+
+    <!-- Two-Column Workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <!-- Epics & Execution Board (8 Cols) -->
+      <section class="lg:col-span-8 space-y-4">
+        <div class="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div>
+            <h2 class="text-base font-bold text-slate-800">Master Epic Execution Board</h2>
+            <p class="text-xs text-slate-500">Update remaining effort, reallocate Dev proxies, and manage handoffs</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-500 font-semibold">Filter:</label>
+            <select id="filter-system" onchange="renderEpics()" class="text-xs border border-slate-300 rounded px-2.5 py-1.5 bg-slate-50 text-slate-700 font-medium outline-none">
+              <option value="ALL">All Systems</option>
+              <option value="Salesforce">Salesforce</option>
+              <option value="SAP">SAP</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="epics-list" class="space-y-4"></div>
+      </section>
+
+      <!-- Live Resource Heatmap (4 Cols) -->
+      <aside class="lg:col-span-4 bg-white rounded-xl border border-slate-200 shadow-sm p-4 sticky top-20 space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-chart-pie text-indigo-500"></i> Resource Load Heatmap
+            </h3>
+            <p class="text-[11px] text-slate-400">Live allocation for target sprint</p>
+          </div>
+          <select id="heatmap-sprint-select" onchange="renderHeatmap()" class="text-xs border border-slate-300 rounded px-2 py-1 font-semibold bg-slate-50 outline-none"></select>
+        </div>
+
+        <!-- Heatmap Threshold Legend -->
+        <div class="grid grid-cols-3 gap-1 text-[11px] text-center font-medium">
+          <div class="bg-emerald-50 text-emerald-700 py-1 rounded border border-emerald-200">0-80% Optimal</div>
+          <div class="bg-amber-50 text-amber-700 py-1 rounded border border-amber-200">81-100% Full</div>
+          <div class="bg-rose-50 text-rose-700 py-1 rounded border border-rose-200">&gt;100% Overload</div>
+        </div>
+
+        <div id="heatmap-list" class="space-y-2.5 max-h-[550px] overflow-y-auto pr-1"></div>
+
+        <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-1">
+          <div class="font-semibold text-slate-700"><i class="fa-solid fa-shield-halved text-emerald-600 mr-1"></i> Redlist Fencing Active</div>
+          <p class="text-[11px] leading-relaxed text-slate-500">Pramod, Samer, Hemath, and Kripa are isolated to bug remediation only and barred from Epic allocation dropdowns.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Standup Parser Modal -->
+  <div id="standup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-microphone-lines text-indigo-600"></i> Stand-up Log AI Parser
+        </h3>
+        <button onclick="toggleModal('standup-modal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-slate-500">Paste your daily standup transcript to automatically decrement remaining days and attach blocker tags.</p>
+      <textarea id="standup-text" rows="5" class="w-full text-xs border border-slate-300 rounded-lg p-3 font-mono focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Shashank: Spent 2 days on Value Based Discounting. 3 days remaining. Waiting for SAP API..."></textarea>
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleModal('standup-modal')" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded font-medium">Cancel</button>
+        <button onclick="processStandup()" class="px-4 py-1.5 text-xs bg-indigo-600 text-white rounded font-medium hover:bg-indigo-700 shadow">Simulate &amp; Update</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sheet URL Sync Modal -->
+  <div id="import-url-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-link text-sky-600"></i> Sync from Google Sheets URL
+        </h3>
+        <button onclick="toggleModal('import-url-modal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-slate-500">Provide the <b>Published to Web CSV</b> URL of your Google Sheet (File &gt; Share &gt; Publish to web &gt; CSV format):</p>
+      <input id="sheet-csv-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" class="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-sky-500" />
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleModal('import-url-modal')" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded font-medium">Cancel</button>
+        <button onclick="syncFromGoogleSheetsUrl()" class="px-4 py-1.5 text-xs bg-sky-600 text-white rounded font-medium hover:bg-sky-700 shadow">Fetch &amp; Ingest</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- APPLICATION STATE ---
+    let sprints = [
+      { id: "27.2.6", name: "Sprint 27.2.6", days: 10, note: "Completed" },
+      { id: "27.3.1", name: "Sprint 27.3.1", days: 9,  note: "1 Holiday" },
+      { id: "27.3.2", name: "Sprint 27.3.2", days: 8,  note: "2 Holidays (Current)" },
+      { id: "27.3.3", name: "Sprint 27.3.3", days: 10, note: "Standard" },
+      { id: "27.3.4", name: "Sprint 27.3.4", days: 10, note: "Standard" },
+      { id: "27.3.5", name: "Sprint 27.3.5", days: 10, note: "Standard" }
+    ];
+
+    let resources = [
+      { name: "Unassigned", role: "Unassigned", redlist: false },
+      { name: "Rajasekhar Reddy M", role: "Dev Manager (Proxy)", redlist: false },
+      { name: "Shashank", role: "SF Dev", redlist: false },
+      { name: "Rajneesh", role: "SF Dev", redlist: false },
+      { name: "Aswani", role: "SF Dev", redlist: false },
+      { name: "Nilay", role: "SF Dev", redlist: false },
+      { name: "Vivek", role: "SF Dev", redlist: false },
+      { name: "Rahul", role: "SF Dev", redlist: false },
+      { name: "Aliyaz", role: "SF Dev", redlist: false },
+      { name: "SAP Dev Pool", role: "SAP Dev", redlist: false },
+      { name: "Sanhita", role: "Module Lead", redlist: false },
+      { name: "Sarvanan", role: "Module Lead", redlist: false },
+      { name: "Supravat Samal", role: "SAP Module Lead", redlist: false },
+      { name: "Gaurav Jaiswal", role: "QA", redlist: false },
+      { name: "Santosh", role: "QA", redlist: false },
+      { name: "Suraj", role: "QA", redlist: false },
+      { name: "Mayuk", role: "QA", redlist: false },
+      { name: "Aplusatech Arun", role: "SAP FC / QA", redlist: false },
+      { name: "Kiran Sivakumar", role: "Transformation", redlist: false },
+      { name: "Bharanidhar V", role: "Transformation", redlist: false },
+      { name: "Niranjan MJ", role: "Transformation", redlist: false },
+      // Redlist Fencing
+      { name: "Pramod", role: "Redlist Dev", redlist: true },
+      { name: "Samer", role: "Redlist Dev", redlist: true },
+      { name: "Hemath", role: "Redlist Dev", redlist: true },
+      { name: "Kripa", role: "Redlist QA", redlist: true }
+    ];
+
+    let epics = [
+      {
+        id: "BSOFT-91341",
+        name: "Value Based Discounting/Bundling",
+        system: "Salesforce",
+        comments: "PRD & Tech Sol delivered on time.",
+        tasks: [
+          { phase: "PRD", assignee: "Kiran Sivakumar", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "Tech Solution", assignee: "Sanhita", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "SF Dev", assignee: "Rajasekhar Reddy M", sprint: "27.3.2", days: 5, status: "In Progress" },
+          { phase: "QA", assignee: "Gaurav Jaiswal", sprint: "27.3.2", days: 3, status: "Pending" },
+          { phase: "UAT", assignee: "Kiran Sivakumar", sprint: "27.3.3", days: 1, status: "Pending" },
+          { phase: "Deployment", assignee: "Rajasekhar Reddy M", sprint: "27.3.3", days: 1, status: "Pending" },
+          { phase: "LVPT", assignee: "Kiran Sivakumar", sprint: "27.3.3", days: 0.5, status: "Pending" }
+        ]
+      },
+      {
+        id: "BSOFT-91342",
+        name: "Goodwill Logistics",
+        system: "Salesforce",
+        comments: "Dev completed in 27.2.6; QA running in 27.3.2.",
+        tasks: [
+          { phase: "PRD", assignee: "Bharanidhar V", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "Tech Solution", assignee: "Sanhita", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "SF Dev", assignee: "Rajasekhar Reddy M", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "QA", assignee: "Gaurav Jaiswal", sprint: "27.3.2", days: 4, status: "In Progress" },
+          { phase: "UAT", assignee: "Bharanidhar V", sprint: "27.3.2", days: 1, status: "Pending" },
+          { phase: "Deployment", assignee: "Rajasekhar Reddy M", sprint: "27.3.2", days: 1, status: "Pending" },
+          { phase: "LVPT", assignee: "Bharanidhar V", sprint: "27.3.2", days: 0.5, status: "Pending" }
+        ]
+      },
+      {
+        id: "BSOFT-91344",
+        name: "WS Optimization : Pull After Invoicing",
+        system: "SAP",
+        comments: "Heavy ABAP development required in 27.3.2.",
+        tasks: [
+          { phase: "PRD", assignee: "Niranjan MJ", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "Tech Solution", assignee: "Supravat Samal", sprint: "27.3.1", days: 0, status: "Done" },
+          { phase: "SAP FC", assignee: "Aplusatech Arun", sprint: "27.3.1", days: 0, status: "Done" },
+          { phase: "SAP Dev", assignee: "SAP Dev Pool", sprint: "27.3.2", days: 15, status: "Pending" },
+          { phase: "QA", assignee: "Aplusatech Arun", sprint: "27.3.3", days: 2, status: "Pending" },
+          { phase: "UAT", assignee: "Niranjan MJ", sprint: "27.3.3", days: 1, status: "Pending" },
+          { phase: "Deployment", assignee: "Aplusatech Arun", sprint: "27.3.3", days: 1, status: "Pending" }
+        ]
+      },
+      {
+        id: "BSOFT-91346",
+        name: "End to End Integration of ATL/BTL Claims",
+        system: "Salesforce",
+        comments: "UAT flagged with Business Delay.",
+        tasks: [
+          { phase: "SF Dev", assignee: "Rajasekhar Reddy M", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "QA", assignee: "Gaurav Jaiswal", sprint: "27.2.6", days: 0, status: "Done" },
+          { phase: "UAT", assignee: "Niranjan MJ", sprint: "27.3.2", days: 1, status: "Business Delay" },
+          { phase: "Deployment", assignee: "Rajasekhar Reddy M", sprint: "27.3.2", days: 1, status: "Pending" },
+          { phase: "LVPT", assignee: "Niranjan MJ", sprint: "27.3.2", days: 1, status: "Pending" }
+        ]
+      }
+    ];
+
+    // --- INITIALIZATION ---
+    function init() {
+      renderSprintGrid();
+      populateSprintSelect();
+      renderEpics();
+      renderHeatmap();
+    }
+
+    function renderSprintGrid() {
+      const el = document.getElementById('sprints-grid');
+      el.innerHTML = sprints.map(s => `
+        <div class="border rounded-lg p-2.5 ${s.id === '27.3.2' ? 'border-indigo-500 bg-indigo-50/40 ring-1 ring-indigo-500' : 'border-slate-200 bg-slate-50'}">
+          <div class="flex justify-between items-center text-xs font-bold text-slate-700">
+            <span>${s.name}</span>
+            ${s.id === '27.3.2' ? '<span class="px-1.5 py-0.2 text-[10px] rounded bg-indigo-600 text-white font-medium">Active</span>' : ''}
+          </div>
+          <div class="mt-1 text-xs text-slate-500 flex justify-between">
+            <span>Capacity:</span>
+            <span class="font-bold text-slate-800">${s.days} Days</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">${s.note}</div>
+        </div>
+      `).join('');
+    }
+
+    function populateSprintSelect() {
+      const select = document.getElementById('heatmap-sprint-select');
+      select.innerHTML = sprints.map(s => `
+        <option value="${s.id}" ${s.id === '27.3.2' ? 'selected' : ''}>${s.name} (${s.days}d)</option>
+      `).join('');
+    }
+
+    function renderEpics() {
+      const filter = document.getElementById('filter-system').value;
+      const el = document.getElementById('epics-list');
+      const filtered = filter === 'ALL' ? epics : epics.filter(e => e.system === filter);
+
+      el.innerHTML = filtered.map((epic, eIdx) => {
+        const remDays = epic.tasks.reduce((sum, t) => sum + (t.status !== 'Done' ? t.days : 0), 0);
+        return `
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-3.5 bg-slate-50/70 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">${epic.id}</span>
+                  <h3 class="text-sm font-bold text-slate-800">${epic.name}</h3>
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium ${epic.system === 'Salesforce' ? 'bg-sky-100 text-sky-700' : 'bg-purple-100 text-purple-700'}">${epic.system}</span>
+                </div>
+                <p class="text-xs text-slate-500 mt-1 italic"><i class="fa-regular fa-comment-dots mr-1"></i>${epic.comments}</p>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-slate-500">Remaining Effort:</span>
+                <span class="text-sm font-bold text-slate-800 ml-1">${remDays}d</span>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr class="bg-slate-100/60 text-slate-600 font-semibold border-b border-slate-200">
+                    <th class="py-2 px-3">Phase</th>
+                    <th class="py-2 px-3">Status</th>
+                    <th class="py-2 px-3">Assignee (Dev Proxy & Pool)</th>
+                    <th class="py-2 px-3">Sprint</th>
+                    <th class="py-2 px-3 text-right">Rem. Days</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${epic.tasks.map((task, tIdx) => `
+                    <tr class="hover:bg-slate-50 transition">
+                      <td class="py-2 px-3 font-semibold text-slate-700">${task.phase}</td>
+                      <td class="py-2 px-3">
+                        <select onchange="updateTaskField(${eIdx}, ${tIdx}, 'status', this.value)" 
+                                class="border border-slate-300 rounded px-2 py-1 text-xs font-medium outline-none 
+                                ${task.status === 'Done' ? 'badge-done' : task.status === 'In Progress' ? 'badge-progress' : task.status === 'Business Delay' ? 'badge-delay' : 'badge-pending'}">
+                          <option value="Pending" ${task.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                          <option value="In Progress" ${task.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                          <option value="Done" ${task.status === 'Done' ? 'selected' : ''}>Done</option>
+                          <option value="Business Delay" ${task.status === 'Business Delay' ? 'selected' : ''}>Business Delay</option>
+                          <option value="Testing" ${task.status === 'Testing' ? 'selected' : ''}>Testing</option>
+                        </select>
+                      </td>
+                      <td class="py-2 px-3">
+                        <select onchange="updateTaskField(${eIdx}, ${tIdx}, 'assignee', this.value)" 
+                                class="border border-slate-300 rounded px-2 py-1 text-xs bg-white text-slate-700 font-medium outline-none">
+                          ${resources.filter(r => !r.redlist).map(r => `
+                            <option value="${r.name}" ${task.assignee === r.name ? 'selected' : ''}>
+                              ${r.name} (${r.role})
+                            </option>
+                          `).join('')}
+                        </select>
+                      </td>
+                      <td class="py-2 px-3">
+                        <select onchange="updateTaskField(${eIdx}, ${tIdx}, 'sprint', this.value)" 
+                                class="border border-slate-300 rounded px-2 py-1 text-xs bg-white text-slate-700 font-medium outline-none">
+                          ${sprints.map(s => `
+                            <option value="${s.id}" ${task.sprint === s.id ? 'selected' : ''}>${s.name}</option>
+                          `).join('')}
+                        </select>
+                      </td>
+                      <td class="py-2 px-3 text-right">
+                        <input type="number" step="0.5" min="0" value="${task.days}" 
+                               onchange="updateTaskField(${eIdx}, ${tIdx}, 'days', parseFloat(this.value) || 0)"
+                               class="w-16 border border-slate-300 rounded px-2 py-1 text-right text-xs font-semibold outline-none ${task.days > 0 && task.status !== 'Done' ? 'text-indigo-600 font-bold' : 'text-slate-400'}"/>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderHeatmap() {
+      const selectedSprintId = document.getElementById('heatmap-sprint-select').value;
+      const sprintObj = sprints.find(s => s.id === selectedSprintId) || sprints[2];
+      const sprintDays = sprintObj.days;
+
+      const map = {};
+      resources.filter(r => !r.redlist && r.name !== 'Unassigned').forEach(r => {
+        map[r.name] = { total: 0, role: r.role };
+      });
+
+      epics.forEach(epic => {
+        epic.tasks.forEach(t => {
+          if (t.sprint === selectedSprintId && t.status !== 'Done' && map[t.assignee]) {
+            map[t.assignee].total += t.days;
+          }
+        });
+      });
+
+      const container = document.getElementById('heatmap-list');
+      const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+
+      container.innerHTML = entries.map(([name, data]) => {
+        const util = Math.round((data.total / sprintDays) * 100);
+        let badgeColor = 'bg-emerald-500';
+        let textColor = 'text-emerald-700';
+        let bgBox = 'bg-emerald-50/50 border-emerald-100';
+
+        if (util > 80 && util <= 100) {
+          badgeColor = 'bg-amber-500';
+          textColor = 'text-amber-700';
+          bgBox = 'bg-amber-50/50 border-amber-100';
+        } else if (util > 100) {
+          badgeColor = 'bg-rose-500';
+          textColor = 'text-rose-700';
+          bgBox = 'bg-rose-50 border-rose-200';
+        }
+
+        return `
+          <div class="p-2.5 rounded-lg border ${bgBox} transition">
+            <div class="flex justify-between items-center text-xs mb-1">
+              <div>
+                <span class="font-bold text-slate-800">${name}</span>
+                <span class="text-[10px] text-slate-400 block">${data.role}</span>
+              </div>
+              <div class="text-right">
+                <span class="font-bold ${textColor}">${data.total}d / ${sprintDays}d</span>
+                <span class="text-[10px] font-semibold text-slate-500 block">(${util}%)</span>
+              </div>
+            </div>
+            <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+              <div class="${badgeColor} h-1.5 rounded-full transition-all duration-300" style="width: ${Math.min(util, 100)}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateTaskField(eIdx, tIdx, field, val) {
+      epics[eIdx].tasks[tIdx][field] = val;
+      renderHeatmap();
+      if (field === 'sprint' || field === 'status') {
+        renderEpics();
+      }
+    }
+
+    function toggleModal(id) {
+      document.getElementById(id).classList.toggle('hidden');
+    }
+
+    // --- TWO-WAY SHEETS ENGINE (SheetJS) ---
+
+    // 1. Export Multi-Tab Workbook (.xlsx)
+    function exportToWorkbook() {
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Flat Task Execution Table
+      const taskRows = [];
+      epics.forEach(e => {
+        e.tasks.forEach(t => {
+          taskRows.push({
+            "Epic ID": e.id,
+            "Epic Name": e.name,
+            "System": e.system,
+            "Phase": t.phase,
+            "Assignee": t.assignee,
+            "Sprint": t.sprint,
+            "Remaining Days": t.days,
+            "Status": t.status,
+            "Comments": e.comments
+          });
+        });
+      });
+      const wsTasks = XLSX.utils.json_to_sheet(taskRows);
+      XLSX.utils.book_append_sheet(wb, wsTasks, "Epic_Tasks");
+
+      // Sheet 2: Resource Heatmap Summary (Active Sprint)
+      const selectedSprint = document.getElementById('heatmap-sprint-select').value;
+      const sprintDays = (sprints.find(s => s.id === selectedSprint) || {}).days || 8;
+      const heatRows = resources.filter(r => !r.redlist && r.name !== 'Unassigned').map(r => {
+        let total = 0;
+        epics.forEach(e => e.tasks.forEach(t => {
+          if (t.sprint === selectedSprint && t.status !== 'Done' && t.assignee === r.name) {
+            total += t.days;
+          }
+        }));
+        return {
+          "Resource": r.name,
+          "Role": r.role,
+          "Sprint": selectedSprint,
+          "Allocated Days": total,
+          "Sprint Working Days": sprintDays,
+          "Utilization %": Math.round((total / sprintDays) * 100)
+        };
+      });
+      const wsHeat = XLSX.utils.json_to_sheet(heatRows);
+      XLSX.utils.book_append_sheet(wb, wsHeat, "Capacity_Heatmap");
+
+      // Sheet 3: Sprint Baselines
+      const wsSprints = XLSX.utils.json_to_sheet(sprints);
+      XLSX.utils.book_append_sheet(wb, wsSprints, "Sprint_Baselines");
+
+      // Trigger instant download
+      XLSX.writeFile(wb, `ART_PI_Planning_Sprint_${selectedSprint}.xlsx`);
+    }
+
+    // 2. Import from File Upload (.xlsx or .csv)
+    function handleFileImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        ingestWorkbookData(workbook);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // 3. Ingest Live Google Sheet Published CSV URL
+    async function syncFromGoogleSheetsUrl() {
+      const url = document.getElementById('sheet-csv-url').value.trim();
+      if (!url) return alert('Please enter a valid Google Sheets published CSV URL.');
+
+      try {
+        const response = await fetch(url);
+        const csvText = await response.text();
+        const workbook = XLSX.read(csvText, { type: 'string' });
+        ingestWorkbookData(workbook);
+        toggleModal('import-url-modal');
+        alert('Data successfully synced from Google Sheets!');
+      } catch (err) {
+        alert('Error fetching Google Sheets URL: ' + err.message + '\nEnsure the sheet is published to the web in CSV format.');
+      }
+    }
+
+    // 4. Parser to map incoming tabular sheet data into App State
+    function ingestWorkbookData(workbook) {
+      const sheetName = workbook.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+      if (!rows || rows.length === 0) return alert('No rows detected in the imported sheet.');
+
+      // Group rows by Epic ID
+      const epicMap = {};
+      rows.forEach(r => {
+        const epicId = r["Epic ID"] || r["EpicId"] || r["epic_id"] || "BSOFT-GENERAL";
+        if (!epicMap[epicId]) {
+          epicMap[epicId] = {
+            id: epicId,
+            name: r["Epic Name"] || r["epic_name"] || epicId,
+            system: r["System"] || "Salesforce",
+            comments: r["Comments"] || "",
+            tasks: []
+          };
+        }
+        epicMap[epicId].tasks.push({
+          phase: r["Phase"] || "SF Dev",
+          assignee: r["Assignee"] || "Rajasekhar Reddy M",
+          sprint: r["Sprint"] || "27.3.2",
+          days: parseFloat(r["Remaining Days"] || r["days"] || 0),
+          status: r["Status"] || "Pending"
+        });
+      });
+
+      epics = Object.values(epicMap);
+      renderEpics();
+      renderHeatmap();
+    }
+
+    function processStandup() {
+      // Stand-up simulation: Reallocate Value Based Discounting dev to Shashank with 3 days remaining
+      if (epics[0] && epics[0].tasks[2]) {
+        epics[0].tasks[2].assignee = "Shashank";
+        epics[0].tasks[2].days = 3;
+        epics[0].comments = "Standup Update: Shashank burnt 2d, 3d remaining. Blocker flagged on SAP API.";
+      }
+      toggleModal('standup-modal');
+      renderEpics();
+      renderHeatmap();
+      alert("Stand-up log processed: Updated remaining days and allocated task to Shashank.");
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
